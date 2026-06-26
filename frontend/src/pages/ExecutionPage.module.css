@@ -1,0 +1,46 @@
+.page { min-height:100vh; background:#080A0F; color:#E2E8F0; font-family:'JetBrains Mono',monospace; font-size:13px; display:flex; align-items:flex-start; justify-content:center; padding:32px 16px 64px; }
+.container { width:100%; max-width:700px; display:flex; flex-direction:column; gap:24px; }
+.header { display:flex; align-items:center; gap:16px; }
+.back { background:none; border:none; color:#475569; font-family:'JetBrains Mono',monospace; font-size:13px; cursor:pointer; }
+.back:hover { color:#94A3B8; }
+.title { font-family:'Syne',sans-serif; font-size:22px; font-weight:800; color:#F1F5F9; margin:0; }
+.section { display:flex; flex-direction:column; gap:10px; }
+.sectionTitle { font-size:10px; letter-spacing:0.15em; text-transform:uppercase; color:#64748B; display:flex; align-items:center; gap:8px; }
+.privateNote { font-size:9px; color:#334155; background:#161B27; border-radius:4px; padding:2px 6px; }
+.specEditor { background:#0F1117; border:1px solid #1E2433; border-radius:10px; padding:14px; color:#E2E8F0; font-family:'JetBrains Mono',monospace; font-size:12px; outline:none; resize:vertical; width:100%; line-height:1.7; }
+.specEditor:focus { border-color:#F59E0B; }
+.specActions { display:flex; gap:8px; }
+.downloadBtn { background:none; border:1px solid #1E2433; border-radius:8px; padding:8px 14px; color:#475569; font-family:'JetBrains Mono',monospace; font-size:12px; cursor:pointer; }
+.downloadBtn:hover { border-color:#2A3347; color:#94A3B8; }
+.executorGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px; }
+.executorCard { background:#0F1117; border:1px solid color-mix(in srgb,var(--ex-color) 20%,#1E2433); border-radius:10px; padding:14px; cursor:pointer; transition:all 0.15s; opacity:0.6; }
+.executorCard:hover { opacity:0.85; }
+.selectedCard { opacity:1; border-color:var(--ex-color); background:color-mix(in srgb,var(--ex-color) 8%,#0F1117); }
+.exHeader { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.exIcon { font-size:18px; }
+.exName { font-family:'Syne',sans-serif; font-weight:700; font-size:13px; color:#F1F5F9; flex:1; }
+.exDesc { font-size:11px; color:#475569; line-height:1.5; }
+.online { font-size:10px; }
+.offline { font-size:10px; filter:grayscale(1); }
+.credItem { display:flex; flex-direction:column; gap:6px; }
+.credToggle { background:#0F1117; border:1px solid #1E2433; border-radius:8px; padding:10px 14px; color:#94A3B8; font-family:'JetBrains Mono',monospace; font-size:12px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; }
+.credInput { background:#060810; border:1px solid #1E2433; border-radius:8px; padding:10px 12px; color:#E2E8F0; font-family:'JetBrains Mono',monospace; font-size:12px; outline:none; resize:vertical; width:100%; }
+.input { background:#0F1117; border:1px solid #1E2433; border-radius:8px; padding:10px 14px; color:#E2E8F0; font-family:'JetBrains Mono',monospace; font-size:13px; outline:none; width:100%; }
+.input:focus { border-color:#F59E0B; }
+.executeBtn { background:#F59E0B; border:none; border-radius:10px; padding:14px; color:#080A0F; font-family:'Syne',sans-serif; font-weight:700; font-size:15px; cursor:pointer; transition:background 0.2s; }
+.executeBtn:hover:not(:disabled) { background:#FCD34D; }
+.executeBtn:disabled { opacity:0.4; cursor:not-allowed; }
+.results { display:flex; flex-direction:column; gap:10px; }
+.result { background:#0F1117; border-radius:10px; padding:14px; display:flex; flex-direction:column; gap:8px; }
+.resultOk  { border:1px solid #10B981; }
+.resultErr { border:1px solid #EF4444; }
+.resultHeader { display:flex; justify-content:space-between; font-family:'Syne',sans-serif; font-weight:700; font-size:13px; }
+.resultOk .resultHeader { color:#10B981; }
+.resultErr .resultHeader { color:#EF4444; }
+.resultOutput { font-size:11px; color:#64748B; white-space:pre-wrap; word-break:break-all; max-height:200px; overflow-y:auto; }
+.resultErr2   { font-size:11px; color:#EF4444; white-space:pre-wrap; }
+.resultErrMsg { font-size:12px; color:#EF4444; }
+.footer { display:flex; gap:10px; }
+.backBtn { background:#F59E0B; border:none; border-radius:8px; padding:10px 20px; color:#080A0F; font-family:'Syne',sans-serif; font-weight:700; font-size:13px; cursor:pointer; }
+.historyBtn { background:none; border:1px solid #1E2433; border-radius:8px; padding:10px 20px; color:#475569; font-family:'JetBrains Mono',monospace; font-size:13px; cursor:pointer; }
+.historyBtn:hover { border-color:#2A3347; color:#94A3B8; }

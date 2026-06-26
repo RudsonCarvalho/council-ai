@@ -1,0 +1,14 @@
+node_modules/
+frontend/node_modules/
+frontend/dist/
+.env
+storage/research/*
+storage/sessions/*
+storage/templates/*
+storage/vault/*
+!storage/research/.gitkeep
+!storage/sessions/.gitkeep
+!storage/templates/.gitkeep
+!storage/vault/.gitkeep
+*.log
+.DS_Store
