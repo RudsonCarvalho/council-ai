@@ -1,66 +1,98 @@
 # AI Debate Platform
 
-Uma plataforma web para colocar modelos de IA em debate estruturado, comparar argumentos em tempo real e transformar consenso em decisao acionavel.
+Turn complex decisions into structured multi-AI debates.
 
-Em vez de pedir uma resposta unica para um unico modelo, a plataforma organiza uma sala de deliberacao com agentes especializados. Cada IA defende uma perspectiva, le as respostas das demais, revisa suas posicoes e converge para uma sintese final.
+AI Debate Platform is a web app that lets multiple AI models reason over the same problem, challenge each other across rounds, converge through a moderator, and produce a final decision document you can actually use.
 
-## Proposta
+> Nota em portugues: este projeto cria uma sala de debate entre varias IAs para comparar argumentos, chegar a consenso e gerar uma decisao ou especificacao final.
 
-AI Debate Platform ajuda equipes a tomar decisoes melhores quando o problema e complexo, caro ou cheio de trade-offs.
+## Why It Exists
 
-- Compare respostas de Claude, GPT, Gemini, Perplexity, DeepSeek, Grok e Mistral no mesmo fluxo.
-- Defina moderador, participantes, tom do debate, regras da sala e contexto privado por agente.
-- Injete arquivos, URLs, sessoes anteriores e briefings como memoria de decisao.
-- Pause o debate para revisao humana, peca esclarecimentos e continue com mais contexto.
-- Gere um documento final: decisao fundamentada, especificacao tecnica, artigo, pesquisa ou plano de negocio.
-- Encaminhe a especificacao para executores locais, como Claude Code ou Aider, quando quiser transformar consenso em implementacao.
+Most AI tools give you one answer from one model. That is useful, but fragile when the decision is strategic, technical, expensive, or full of trade-offs.
 
-## Casos de uso
+AI Debate Platform is built for the moments where you want more than a single response. It creates a deliberation room where different models bring different strengths, disagree constructively, refine their positions, and help you see the problem from several angles before committing to a direction.
 
-- Arquitetura de software e revisao de trade-offs.
-- Analise de produto, mercado ou estrategia.
-- Preparacao de decisoes executivas.
-- Pesquisa comparativa com modelos que pensam de formas diferentes.
-- Validacao de ideias antes de investir tempo de engenharia.
-- Geracao de especificacoes tecnicas a partir de debate multiagente.
+## What It Does
 
-## Como funciona
+- Runs structured debates between Claude, GPT, Gemini, Perplexity, DeepSeek, Grok, Mistral, and other provider-compatible agents.
+- Lets you choose participants, moderator, debate tone, room rules, models, rounds, and synthesis objective.
+- Streams each AI response in real time so you can inspect how the debate evolves.
+- Supports private briefings per agent, letting each model receive a different role, bias, constraint, or expertise.
+- Accepts files, URLs, previous sessions, and research notes as decision context.
+- Lets a human pause the debate, inject guidance, ask for clarification, or redirect the room.
+- Produces a final synthesis such as a decision memo, technical spec, research analysis, article outline, or business plan.
+- Can hand the final spec to local execution tools such as Claude Code or Aider.
+
+## Product Positioning
+
+Use it when the cost of being wrong is higher than the cost of thinking harder.
+
+AI Debate Platform is useful for:
+
+- software architecture decisions;
+- product and business strategy;
+- market and competitor analysis;
+- technical specification drafting;
+- high-stakes implementation planning;
+- research synthesis;
+- validating ideas before spending engineering time;
+- comparing model reasoning side by side.
+
+## How It Works
 
 ```text
-Usuario
-  -> Problema, contexto e regras
-  -> Agentes de IA debatem em rounds
-  -> Moderador avalia progresso e consenso
-  -> Humano pode pausar, orientar e adicionar contexto
-  -> Sintetizador gera o documento final
-  -> Executor opcional transforma a decisao em trabalho
+User
+  -> Problem, context, rules, and constraints
+  -> Multiple AI agents debate across rounds
+  -> Moderator evaluates alignment and disagreement
+  -> Human can pause, clarify, or steer the debate
+  -> Synthesizer creates the final decision artifact
+  -> Optional executor turns the output into implementation work
 ```
 
-## Stack
+## Core Concepts
 
-- Node.js e Express no backend.
-- React, Vite e Zustand no frontend.
-- MongoDB para persistencia de sessoes.
-- SDKs oficiais ou APIs OpenAI-compatible para provedores de IA.
-- Server-Sent Events para acompanhar respostas em streaming.
+**Agents**
 
-## Requisitos
+Each agent has a provider, model, persona, token limit, temperature, cost metadata, and optional private briefing.
 
-- Node.js 18 ou superior.
-- MongoDB acessivel localmente ou via URI.
-- Chaves de API apenas dos provedores que voce deseja usar.
-- Opcional: Claude Code CLI ou Aider para execucao de especificacoes.
+**Moderator**
 
-## Instalacao
+The moderator evaluates progress, identifies consensus, highlights unresolved disagreements, and can decide when the debate is ready for synthesis.
+
+**Room Rules**
+
+Debates can be configured with constraints such as tone, word limits, evidence requirements, challenger behavior, or scenario-specific instructions.
+
+**Synthesis**
+
+At the end, one selected AI reads the debate and creates a structured final artifact for the chosen goal.
+
+## Tech Stack
+
+- Node.js and Express backend.
+- React, Vite, and Zustand frontend.
+- MongoDB for session persistence.
+- Server-Sent Events for streaming debate responses.
+- Official SDKs and OpenAI-compatible APIs for model providers.
+
+## Requirements
+
+- Node.js 18 or newer.
+- MongoDB, local or remote.
+- API keys for the providers you want to enable.
+- Optional: Claude Code CLI or Aider for implementation handoff.
+
+## Installation
 
 ```bash
-git clone https://github.com/SEU_USUARIO/ai-debate-platform.git
+git clone https://github.com/YOUR_USERNAME/ai-debate-platform.git
 cd ai-debate-platform
 npm run install:all
 cp .env.example .env
 ```
 
-Edite o arquivo `.env` com suas credenciais reais. O repositorio publico deve manter apenas valores simbolicos.
+Edit `.env` with your real credentials. The public repository should only contain symbolic placeholder values.
 
 ```env
 ANTHROPIC_API_KEY=your-anthropic-api-key
@@ -73,7 +105,7 @@ MISTRAL_API_KEY=your-mistral-api-key
 MONGODB_URI=mongodb://localhost:27017/ai-debate-platform
 ```
 
-## Rodando em desenvolvimento
+## Development
 
 ```bash
 npm run dev
@@ -82,41 +114,41 @@ npm run dev
 - Frontend: `http://localhost:3000`
 - Backend: `http://localhost:3001`
 
-## Configuracao dos agentes
+## Agent Configuration
 
-Os agentes ficam em `config/agents.config.js`.
+Agents are configured in `config/agents.config.js`.
 
-Cada agente pode definir:
+Each agent can define:
 
-- provedor e modelo padrao;
-- modelos alternativos exibidos na UI;
-- persona e estilo de argumentacao;
-- limite de tokens, temperatura e custos estimados;
-- variavel de ambiente usada como API key.
+- default provider and model;
+- alternative models shown in the UI;
+- persona and debate style;
+- token limit, temperature, and estimated cost;
+- environment variable used for its API key.
 
-Para desabilitar um provedor no demo publico, altere `enabled` para `false`.
+To disable a provider in a public demo, set `enabled` to `false`.
 
-## Seguranca
+## Security
 
-Este repositorio foi preparado para publicacao sem credenciais reais.
+This public version is prepared without real credentials.
 
-- Nunca versionar `.env`.
-- Nunca colocar chaves diretamente em arquivos de configuracao.
-- Usar placeholders em `.env.example`.
-- Revisar historico antes de publicar qualquer fork derivado de repositorio privado.
-- Publicar com historico novo quando o projeto original ja conteve segredos.
+- Never commit `.env`.
+- Never hardcode provider keys in source files.
+- Keep `.env.example` symbolic.
+- Do not commit saved sessions, private prompts, customer data, or local research artifacts.
+- Publish from a fresh Git history if the private project ever contained secrets.
 
-Veja tambem [SECURITY.md](SECURITY.md).
+See [SECURITY.md](SECURITY.md) for the publishing checklist.
 
-## Estrutura
+## Project Structure
 
 ```text
-backend/       API, rotas, adaptadores de IA e servicos
-config/        configuracao de agentes, debate, UI e provedores
-frontend/      interface React
-storage/       diretorios locais de runtime, nao dados sensiveis
+backend/       API routes, model adapters, orchestration, storage, synthesis
+config/        agents, provider endpoints, debate rules, UI constants
+frontend/      React application and debate interface
+storage/       local runtime directories; public commits keep placeholders only
 ```
 
-## Licenca
+## License
 
 MIT
