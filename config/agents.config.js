@@ -7,6 +7,13 @@
 
 const NO_MARKDOWN = `\nIMPORTANT: Do NOT use markdown formatting. No headers (#), no bold (**), no bullet points (-), no code fences (\`\`\`), no italics. Write in plain text only. Use line breaks for structure.`;
 
+/**
+ * Modelo usado pelo moderador (juiz de consenso e scorer).
+ * Pode ser qualquer modelo Claude — troque aqui para reduzir custo.
+ * Haiku é 10-20x mais barato que Sonnet e suficiente para moderar debates.
+ */
+export const JUDGE_MODEL = 'claude-haiku-4-5-20251001';
+
 export const AGENTS_CONFIG = {
 
   claude: {
@@ -140,10 +147,10 @@ export const AGENTS_CONFIG = {
     enabled:     true,
     name:        'Grok',
     company:     'xAI',
-    model:       'grok-2-latest',
+    model:       'grok-4.20-non-reasoning',
     models: [
-      { id: 'grok-2-latest', label: 'Grok 2',      note: 'recomendado' },
-      { id: 'grok-2-mini',   label: 'Grok 2 Mini', note: 'mais barato' },
+      { id: 'grok-4.20-reasoning', label: 'Grok 4',      note: 'O mais poderoso atual' },
+      { id: 'grok-4.20-non-reasoning',   label: 'Grok 4 Fast', note: 'Versão mais rápida sem reasoning' },
     ],
     maxTokens:   1024,
     temperature: 0.8,

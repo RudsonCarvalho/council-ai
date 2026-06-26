@@ -25,12 +25,15 @@ const SessionSchema = new Schema({
   theme:           { type: String, default: '' },
   tags:            { type: [String], default: [] },
   isKnowledgeBase: { type: Boolean, default: false },
-  contextSessions: { type: [String], default: [] }, // sessionIds usados como contexto
+  contextSessions: { type: [String], default: [] },
   contextMode:     {
     type: String,
     enum: ['continue', 'light', 'challenge', 'break', 'free'],
     default: 'continue',
   },
+
+  // Lições aprendidas — feedback pós-execução
+  lessons: { type: [String], default: [] },
 
   // Resultado
   consensusResult: { type: Schema.Types.Mixed, default: null },

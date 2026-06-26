@@ -7,7 +7,7 @@ import {
 } from '../services/orchestrator.service.js';
 import { generateReport, generateMinutes } from '../utils/report-generator.js';
 import { saveSession, saveSessionFile }    from '../services/storage.service.js';
-import { synthesizeDebate }                from '../services/synthesizer.service.js';
+import { synthesizeDebate, regenerateSection } from '../services/synthesizer.service.js';
 
 const router = express.Router();
 
@@ -18,13 +18,16 @@ router.post('/start', async (req, res) => {
       problem, agentIds, moderatorId, speed, briefings,
       modelOverrides, constitution, researcherId, researchContext,
       roundLimit, clarificationRound, contextSessions, contextMode,
-      synthesisObjective, synthesizerId,
+      synthesisObjective, synthesizerId, adversaryId,
+      factCheckerId, factCheckerModel,
     } = req.body;
 
     if (!problem?.trim())
       return res.status(400).json({ error: 'Problem is required' });
     if (!agentIds?.length || agentIds.length < 2)
       return res.status(400).json({ error: 'At least 2 agents required' });
+
+    console.log(`[start] contextSessions=${JSON.stringify(contextSessions)} contextMode=${contextMode}`);
 
     const sessionId = nanoid(12);
 
@@ -43,6 +46,9 @@ router.post('/start', async (req, res) => {
       contextMode:        contextMode ?? 'continue',
       synthesisObjective: synthesisObjective ?? '',
       synthesizerId:      synthesizerId ?? 'claude',
+      adversaryId:        adversaryId ?? null,
+      factCheckerId:      factCheckerId ?? null,
+      factCheckerModel:   factCheckerModel ?? null,
     });
 
     await saveSession(sessionId, {
@@ -101,6 +107,39 @@ router.post('/:sessionId/resume', (req, res) => {
 router.post('/:sessionId/speed', (req, res) => {
   const { speed } = req.body;
   setSpeed(req.params.sessionId, speed);
+  res.json({ ok: true });
+});
+
+// ── POST /api/debate/:sessionId/force-synthesis ──────────────────────────────
+// Injeta instrução de síntese forçada e retoma o debate por mais um round
+router.post('/:sessionId/force-synthesis', (req, res) => {
+  const session = getSession(req.params.sessionId);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+
+  const SYNTHESIS_INSTRUCTION = `[SÍNTESE FORÇADA] O debate chegou num ponto suficiente. Este é o round de síntese final.
+
+Cada IA deve agora consolidar TUDO numa resposta executável. Não repita argumentos anteriores. Produza diretamente:
+
+1. DECISÃO: qual é a recomendação final e por quê
+2. IMPLEMENTAÇÃO: passos concretos para executar
+3. RISCOS: os 2-3 riscos reais que ainda existem
+4. PRÓXIMOS PASSOS: o que fazer nas próximas 48h
+
+Seja direto e específico. Nada de teoria. Uma decisão que um engenheiro consegue executar amanhã.`;
+
+  // Injeta silenciosamente no contexto
+  session.allResponses.push({
+    agentId: 'human', agentName: 'Moderador',
+    round: session.currentRound,
+    text: SYNTHESIS_INSTRUCTION,
+    isHuman: true, partial: false, silent: true,
+  });
+
+  session.forcingSynthesis = true;
+
+  // Retoma o debate
+  resumeSession(session.sessionId);
+
   res.json({ ok: true });
 });
 
@@ -187,7 +226,33 @@ router.post('/:sessionId/finish', async (req, res) => {
   }
 });
 
-// ── POST /api/debate/:sessionId/synthesize ───────────────────────────────────
+// ── POST /api/debate/:sessionId/synthesize/section/:index ────────────────────
+router.post('/:sessionId/synthesize/section/:index', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const sectionIndex  = parseInt(req.params.index);
+    const { objective = 'decision', synthesizerId = 'claude' } = req.body;
+
+    res.setHeader('Content-Type',  'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection',    'keep-alive');
+
+    const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+    send({ event: 'regen_start', sectionIndex });
+
+    await regenerateSection(sessionId, sectionIndex, {
+      objective, synthesizerId,
+      onSection: (data) => send({ event: 'section_done', ...data }),
+    });
+
+    send({ event: 'regen_done', sectionIndex });
+    res.end();
+  } catch (err) {
+    console.error('[synthesize/section] Error:', err.message);
+    res.write(`data: ${JSON.stringify({ event: 'error', message: err.message })}\n\n`);
+    res.end();
+  }
+});
 // Gera o documento final seção por seção via SSE
 router.post('/:sessionId/synthesize', async (req, res) => {
   try {

@@ -20,6 +20,9 @@ export default function HistoryPage() {
   const [editTags,      setEditTags]      = useState('');
   const [editKb,        setEditKb]        = useState(false);
   const [savingMeta,    setSavingMeta]    = useState(false);
+  const [lessons,       setLessons]       = useState([]);
+  const [newLesson,     setNewLesson]     = useState('');
+  const [editingLesson, setEditingLesson] = useState(null); // index being edited
   const chatRef = useRef(null);
 
   useEffect(() => {
@@ -31,6 +34,9 @@ export default function HistoryPage() {
     setEditTheme(s.theme ?? '');
     setEditTags((s.tags ?? []).join(', '));
     setEditKb(s.isKnowledgeBase ?? false);
+    setLessons(s.lessons ?? []);
+    setNewLesson('');
+    setEditingLesson(null);
     setMessages([]);
     setLoadingMsgs(true);
     try {
@@ -59,16 +65,47 @@ export default function HistoryPage() {
           theme: editTheme,
           tags:  editTags.split(',').map(t => t.trim()).filter(Boolean),
           isKnowledgeBase: editKb,
+          lessons,
         }),
       });
       setSessions(prev => prev.map(s =>
         s.sessionId === selected.sessionId
-          ? { ...s, theme: editTheme, tags: editTags.split(',').map(t => t.trim()).filter(Boolean), isKnowledgeBase: editKb }
+          ? { ...s, theme: editTheme, tags: editTags.split(',').map(t => t.trim()).filter(Boolean), isKnowledgeBase: editKb, lessons }
           : s
       ));
-      setSelected(prev => ({ ...prev, theme: editTheme, isKnowledgeBase: editKb }));
+      setSelected(prev => ({ ...prev, theme: editTheme, isKnowledgeBase: editKb, lessons }));
     } catch {}
     setSavingMeta(false);
+  }
+
+  async function saveLessons(updated) {
+    setLessons(updated);
+    try {
+      await fetch(`${BASE}/api/sessions/${selected.sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lessons: updated }),
+      });
+      setSessions(prev => prev.map(s =>
+        s.sessionId === selected.sessionId ? { ...s, lessons: updated } : s
+      ));
+    } catch {}
+  }
+
+  function addLesson() {
+    if (!newLesson.trim()) return;
+    saveLessons([...lessons, newLesson.trim()]);
+    setNewLesson('');
+  }
+
+  function updateLesson(i, text) {
+    const updated = lessons.map((l, idx) => idx === i ? text : l);
+    saveLessons(updated);
+    setEditingLesson(null);
+  }
+
+  function removeLesson(i) {
+    saveLessons(lessons.filter((_, idx) => idx !== i));
   }
 
   function handleReopen(s) {
@@ -161,6 +198,49 @@ export default function HistoryPage() {
             <button className={styles.saveMetaBtn} onClick={handleSaveMeta} disabled={savingMeta}>
               {savingMeta ? '...' : 'Salvar'}
             </button>
+          </div>
+
+          {/* Lições aprendidas */}
+          <div className={styles.lessonsPanel}>
+            <div className={styles.lessonsTitle}>📌 Lições aprendidas</div>
+            <p className={styles.lessonsHint}>
+              O que você aprendeu após executar as decisões desta sessão? Estes registros entram como contexto em debates futuros que usarem esta sessão como referência.
+            </p>
+
+            {lessons.map((l, i) => (
+              <div key={i} className={styles.lessonItem}>
+                {editingLesson === i ? (
+                  <input
+                    className={styles.lessonInput}
+                    defaultValue={l}
+                    autoFocus
+                    onBlur={e => updateLesson(i, e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') updateLesson(i, e.target.value);
+                      if (e.key === 'Escape') setEditingLesson(null);
+                    }}
+                  />
+                ) : (
+                  <span className={styles.lessonText} onClick={() => setEditingLesson(i)}>
+                    {i + 1}. {l}
+                  </span>
+                )}
+                <button className={styles.lessonRemove} onClick={() => removeLesson(i)}>✕</button>
+              </div>
+            ))}
+
+            <div className={styles.lessonAddRow}>
+              <input
+                className={styles.lessonInput}
+                placeholder="Adicionar lição... (ex: A decisão X falhou porque Y)"
+                value={newLesson}
+                onChange={e => setNewLesson(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addLesson()}
+              />
+              <button className={styles.lessonAddBtn} onClick={addLesson} disabled={!newLesson.trim()}>
+                + Adicionar
+              </button>
+            </div>
           </div>
 
           {/* Chat completo */}

@@ -21,9 +21,12 @@ export default function SetupPage() {
   const [attachments,   setAttachments]   = useState([]); // arquivos anexados ao problema
   const [uploading,     setUploading]     = useState(false);
 
-  // Modelo selecionado por IA — persiste no localStorage entre sessões
+  // Modelo selecionado por IA — persiste no localStorage, mas valida contra modelos disponíveis
   const [modelOverrides, setModelOverrides] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('model_overrides') ?? '{}'); } catch { return {}; }
+    try {
+      const stored = JSON.parse(localStorage.getItem('model_overrides') ?? '{}');
+      return stored;
+    } catch { return {}; }
   });
 
   function setModelForAgent(agentId, modelId) {
@@ -49,15 +52,18 @@ export default function SetupPage() {
   const [testing,       setTesting]       = useState(false);
 
   // ── Novos campos: knowledge base, limitador, clarification, sintetizador ────
-  const [roundLimit,          setRoundLimit]          = useState(null);  // null = sem limite
+  const [roundLimit,          setRoundLimit]          = useState(null);
   const [clarificationRound,  setClarificationRound]  = useState(true);
-  const [contextSessions,     setContextSessions]     = useState([]);    // sessões selecionadas
+  const [contextSessions,     setContextSessions]     = useState([]);
   const [contextMode,         setContextMode]         = useState('continue');
-  const [knowledgeSessions,   setKnowledgeSessions]   = useState([]);    // sessões disponíveis
+  const [knowledgeSessions,   setKnowledgeSessions]   = useState([]);
   const [synthesisObjective,  setSynthesisObjective]  = useState('decision');
   const [synthesizerId,       setSynthesizerId]       = useState('claude');
   const [knowledgeOpen,       setKnowledgeOpen]       = useState(false);
   const [synthOpen,           setSynthOpen]           = useState(false);
+  const [adversaryId,         setAdversaryId]         = useState(null);
+  const [factCheckerId,       setFactCheckerId]       = useState(null);
+  const [factCheckerModel,    setFactCheckerModel]    = useState(null);  // null = desativado
 
   const fileInputRef = useRef(null);
 
@@ -68,6 +74,18 @@ export default function SetupPage() {
       if (store.agentIds.length === 0) {
         store.setAgentIds(Object.keys(data));
       }
+      // Limpa modelos inválidos do localStorage — evita usar modelos descontinuados
+      setModelOverrides(prev => {
+        const cleaned = { ...prev };
+        let changed = false;
+        Object.entries(cleaned).forEach(([agentId, modelId]) => {
+          const agent = data[agentId];
+          const valid = agent?.models?.some(m => m.id === modelId);
+          if (!valid) { delete cleaned[agentId]; changed = true; }
+        });
+        if (changed) localStorage.setItem('model_overrides', JSON.stringify(cleaned));
+        return cleaned;
+      });
     });
     fetchTemplates().then(setTemplates);
     // Carrega sessões marcadas como knowledge base
@@ -313,6 +331,9 @@ export default function SetupPage() {
         contextMode:        contextMode,
         synthesisObjective: synthesisObjective,
         synthesizerId:      synthesizerId,
+        adversaryId:        adversaryId,
+        factCheckerId:      factCheckerId,
+        factCheckerModel:   factCheckerModel,
       });
 
       store.setSessionId(sessionId);
@@ -336,7 +357,7 @@ export default function SetupPage() {
 
         {/* Header */}
         <div className={styles.header}>
-          <div className={styles.eyebrow}>AI Debate Platform</div>
+          <div className={styles.eyebrow}>Council AI</div>
           <h1 className={styles.title}>Monte sua sala de debate</h1>
         </div>
 
@@ -857,7 +878,125 @@ export default function SetupPage() {
           </label>
         </div>
 
-        {/* ── Sintetizador final ─────────────────────────────────────────── */}
+        {/* ── Adversário ─────────────────────────────────────────────────── */}
+        <div className={styles.section}>
+          <label className={styles.checkboxRow}>
+            <input type="checkbox"
+              checked={adversaryId !== null}
+              onChange={e => setAdversaryId(e.target.checked ? 'claude' : null)} />
+            <div>
+              <span>⚔ Ativar adversário</span>
+              <span className={styles.checkboxHint}>
+                Após cada round, uma IA questiona as respostas das outras — aponta argumentos fracos, repetições e premissas não desafiadas. Ela não vê as próprias respostas anteriores para evitar conflito de interesse.
+              </span>
+            </div>
+          </label>
+
+          {adversaryId !== null && (
+            <div style={{ marginTop: 10 }}>
+              <label className={styles.label}>Qual IA assume o papel de adversário?</label>
+              <div className={styles.agentGrid} style={{ marginTop: 8 }}>
+                {Object.entries(agents).map(([id, cfg]) => (
+                  <div key={id}
+                    className={`${styles.agentCardWrap} ${adversaryId === id ? styles.agentCardWrapSelected : ''}`}
+                    style={{ '--agent-color': cfg.color, cursor: 'pointer' }}
+                    onClick={() => setAdversaryId(id)}>
+                    <div className={styles.agentCard}>
+                      <span className={styles.agentIcon}>{cfg.icon}</span>
+                      <span className={styles.agentName}>{cfg.name}</span>
+                      <span className={styles.agentCompany}>
+                        {adversaryId === id ? '⚔ adversário' : cfg.company}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className={styles.briefingHint}>
+                A IA escolhida continua participando normalmente do debate — ela acumula os dois papéis. Ela não vê as próprias respostas quando está no papel de adversário.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* ── Verificador de fatos ───────────────────────────────────────── */}
+        <div className={styles.section}>
+          <label className={styles.checkboxRow}>
+            <input type="checkbox"
+              checked={factCheckerId !== null}
+              onChange={e => {
+                setFactCheckerId(e.target.checked ? 'perplexity' : null);
+                setFactCheckerModel(null);
+              }} />
+            <div>
+              <span>🔍 Ativar verificador de fatos</span>
+              <span className={styles.checkboxHint}>
+                Quando o debate contiver claims factuais contraditórios (números, datas, versões, preços), esta IA verifica com fontes externas antes do próximo round.
+              </span>
+            </div>
+          </label>
+
+          {factCheckerId !== null && (
+            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <label className={styles.label}>Qual IA verifica os fatos?</label>
+              <div className={styles.agentGrid}>
+                {Object.entries(agents).map(([id, cfg]) => {
+                  const hasWebAccess = id === 'perplexity';
+                  const isSelected   = factCheckerId === id;
+                  return (
+                    <div key={id}
+                      className={`${styles.agentCardWrap} ${isSelected ? styles.agentCardWrapSelected : ''}`}
+                      style={{ '--agent-color': cfg.color, cursor: 'pointer' }}
+                      onClick={() => { setFactCheckerId(id); setFactCheckerModel(null); }}>
+                      <div className={styles.agentCard}>
+                        <span className={styles.agentIcon}>{cfg.icon}</span>
+                        <span className={styles.agentName}>{cfg.name}</span>
+                        <span className={styles.agentCompany}>
+                          {isSelected
+                            ? (hasWebAccess ? '🌐 busca web real' : '⚠ sem web')
+                            : (hasWebAccess ? '🌐 web nativa' : cfg.company)
+                          }
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Aviso de acesso web */}
+              {factCheckerId && factCheckerId !== 'perplexity' && (
+                <div className={styles.factCheckerWarning}>
+                  ⚠ {agents[factCheckerId]?.name} não tem acesso à web neste sistema. Vai verificar com conhecimento de treinamento, que pode estar desatualizado. Para grounding externo real, use Perplexity.
+                </div>
+              )}
+              {factCheckerId === 'perplexity' && (
+                <div className={styles.factCheckerOk}>
+                  ✓ Perplexity busca a web em tempo real e retorna as fontes consultadas. Você verá as URLs no chat quando uma verificação ocorrer.
+                </div>
+              )}
+
+              {/* Seletor de modelo */}
+              {factCheckerId && agents[factCheckerId]?.models?.length > 0 && (
+                <div>
+                  <label className={styles.label}>Modelo do verificador</label>
+                  <select
+                    className={styles.select}
+                    value={factCheckerModel ?? agents[factCheckerId]?.model ?? ''}
+                    onChange={e => setFactCheckerModel(e.target.value)}
+                    style={{ marginTop: 6 }}
+                  >
+                    {agents[factCheckerId].models.map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}{m.note ? ` — ${m.note}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Sintetizador final ─────────────────────────────────────────────────────── */}
         <div className={styles.section}>
           <button className={styles.collapsible} onClick={() => setSynthOpen(o => !o)}>
             <span>📄 Documento final — Sintetizador</span>
@@ -947,12 +1086,12 @@ export default function SetupPage() {
                     <span className={styles.testModel}>{r.model}</span>
                     {r.ok ? (
                       <>
-                        <span className={styles.testStatus}>✅ OK</span>
-                        <span className={styles.testLatency}>{r.latency}ms</span>
+                        <span className={styles.testStatus}>✅ {r.latency}ms</span>
+                        {r.preview && <span className={styles.testPreview}>"{r.preview}"</span>}
                       </>
                     ) : (
                       <>
-                        <span className={styles.testStatus}>❌</span>
+                        <span className={styles.testStatus}>❌ {r.latency}ms</span>
                         <span className={styles.testError}>{r.error}</span>
                       </>
                     )}

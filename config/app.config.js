@@ -6,7 +6,7 @@
 
 export const APP_CONFIG = {
 
-  name:    'AI Debate Platform',
+  name:    'Council AI',
   version: '1.0.0',
 
   // Armazenamento local

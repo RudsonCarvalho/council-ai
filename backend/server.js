@@ -80,6 +80,6 @@ app.get('/api/health', (req, res) => res.json({ ok: true, version: '1.0.0' }));
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`\n  ◈ AI Debate Platform Backend`);
+  console.log(`\n  ◈ Council AI Backend`);
   console.log(`  Running at http://localhost:${PORT}\n`);
 });

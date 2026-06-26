@@ -39,8 +39,8 @@ export async function fetchExecutors() {
 
 // ── Session lifecycle ─────────────────────────────────────────────────────────
 
-export async function startDebate({ problem, agentIds, moderatorId, speed, briefings, modelOverrides }) {
-  return post('/api/debate/start', { problem, agentIds, moderatorId, speed, briefings, modelOverrides });
+export async function startDebate({ problem, agentIds, moderatorId, speed, briefings, modelOverrides, constitution, researcherId, researchContext, roundLimit, clarificationRound, contextSessions, contextMode, synthesisObjective, synthesizerId, adversaryId, factCheckerId, factCheckerModel }) {
+  return post('/api/debate/start', { problem, agentIds, moderatorId, speed, briefings, modelOverrides, constitution, researcherId, researchContext, roundLimit, clarificationRound, contextSessions, contextMode, synthesisObjective, synthesizerId, adversaryId, factCheckerId, factCheckerModel });
 }
 
 export async function pauseDebate(sessionId) {

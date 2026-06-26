@@ -7,7 +7,7 @@
 
 import mongoose from 'mongoose';
 
-const MONGO_URI = process.env.MONGODB_URI ?? 'mongodb://localhost:27017/ai-debate-platform';
+const MONGO_URI = process.env.MONGODB_URI ?? 'mongodb://localhost:27017/council-ai';
 
 let connected = false;
 

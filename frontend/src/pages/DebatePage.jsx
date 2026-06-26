@@ -33,6 +33,8 @@ export default function DebatePage() {
   const [report,        setReport]        = useState(null);
   const [minutes,       setMinutes]       = useState(null);
   const [finishing,     setFinishing]     = useState(false);
+  const [forcingSynth,  setForcingSynth]  = useState(false);
+  const [impasse,       setImpasse]       = useState(null);
   const [typingAgent,   setTypingAgent]   = useState(null);
   const [uploading,     setUploading]     = useState(false);
   const [currentSpeed,  setCurrentSpeed]  = useState(store.speed ?? 3000);
@@ -146,6 +148,46 @@ export default function DebatePage() {
         });
       },
 
+      // Adversário
+      adversary_start: ({ agentId, round, phase }) => {
+        console.log(`[debate] Adversary ${agentId} starting round ${round} — phase: ${phase ?? 'challenger'}`);
+        setTypingAgent(`${agentId}:adversary`);
+      },
+      adversary_done: ({ round, text }) => {
+        setTypingAgent(null);
+      },
+
+      synthesis_round_done: ({ round }) => {
+        store.setStatus('paused');
+        setTypingAgent(null);
+        store.addMessage({
+          agentId: 'judge', agentName: '⚡ Round de síntese concluído',
+          round, text: 'Revise as respostas acima. Se estiver bom, clique Finalizar. Se quiser refinar, escreva no campo abaixo e clique Continuar.',
+          isHuman: false, partial: false, isJudge: true,
+        });
+      },
+
+      impasse_detected: ({ round, analysis }) => {
+        store.setStatus('paused');
+        setTypingAgent(null);
+        setImpasse({ analysis, round });
+        console.log(`[debate] Impasse detected at round ${round}`);
+      },
+
+      factcheck_start: ({ agentId, round, claims }) => {
+        console.log(`[debate] Fact-check starting round ${round} — ${claims?.length} claims`);
+        setTypingAgent(`${agentId}:factchecker`);
+        store.addMessage({
+          agentId: 'judge', agentName: '🔍 Verificando fatos...',
+          round, text: `Verificando ${claims?.length ?? 0} claim(s) factual(is) com fonte externa:\n${(claims ?? []).map((c, i) => `${i+1}. ${c}`).join('\n')}`,
+          isHuman: false, partial: false, isJudge: true,
+        });
+      },
+      factcheck_done: ({ round }) => {
+        setTypingAgent(null);
+        console.log(`[debate] Fact-check done round ${round}`);
+      },
+
       // Limitador de rounds
       round_limit_reached: ({ round, roundLimit, message }) => {
         store.setStatus('paused');
@@ -205,8 +247,14 @@ export default function DebatePage() {
         });
       },
       cost_update: ({ agentId, inputTokens, outputTokens }) => {
-        const cfg = AGENTS_CONFIG[agentId];
-        if (cfg) store.updateTokenStats(agentId, inputTokens, outputTokens, cfg.costPer1kTokens);
+        if (agentId === 'judge') {
+          // Custo do moderador — usa preço do Claude pois é sempre Claude que julga
+          const cfg = AGENTS_CONFIG['claude'];
+          if (cfg) store.updateTokenStats('judge', inputTokens, outputTokens, cfg.costPer1kTokens);
+        } else {
+          const cfg = AGENTS_CONFIG[agentId];
+          if (cfg) store.updateTokenStats(agentId, inputTokens, outputTokens, cfg.costPer1kTokens);
+        }
       },
       error: ({ agentId, message }) => {
         console.error(`[debate] Agent error — ${agentId ?? 'system'}:`, message);
@@ -233,6 +281,23 @@ export default function DebatePage() {
   }, [store.messages, typingAgent, autoScrolling]);
 
   // ── Handlers ────────────────────────────────────────────────────────────────
+
+  async function handleForceSynthesis() {
+    setForcingSynth(true);
+    try {
+      await fetch(`http://localhost:3001/api/debate/${store.sessionId}/force-synthesis`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      });
+      store.setStatus('running');
+      store.addMessage({
+        agentId: 'judge', agentName: '⚡ Síntese forçada',
+        round: store.currentRound,
+        text: 'Round de síntese iniciado. As IAs vão consolidar tudo numa resposta executável — decisão, implementação, riscos e próximos passos.',
+        isHuman: false, partial: false, isJudge: true,
+      });
+    } catch (err) { console.error(err); }
+    setForcingSynth(false);
+  }
 
   async function handlePause() {
     await pauseDebate(store.sessionId);
@@ -335,6 +400,47 @@ export default function DebatePage() {
     setSynthesizing(false);
   }
 
+  async function handleRegenerateSection(sectionIndex, sectionTitle) {
+    const { objective, synthesizerId } = store.synthesisConfig ?? { objective: 'decision', synthesizerId: 'claude' };
+    setSynthSections(prev => prev.map((s, i) =>
+      i === sectionIndex ? { ...s, content: '↺ Regenerando...', error: false } : s
+    ));
+    try {
+      const BASE = 'http://localhost:3001';
+      const res = await fetch(`${BASE}/api/debate/${store.sessionId}/synthesize/section/${sectionIndex}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ objective, synthesizerId }),
+      });
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.event === 'section_done') {
+              setSynthSections(prev => prev.map((s, i) =>
+                i === sectionIndex ? { ...data, regenerated: true } : s
+              ));
+            }
+          } catch {}
+        }
+      }
+    } catch (err) {
+      console.error('Regenerate section error:', err);
+      setSynthSections(prev => prev.map((s, i) =>
+        i === sectionIndex ? { ...s, content: `*Erro ao regenerar: ${err.message}*`, error: true } : s
+      ));
+    }
+  }
+
   // Auto-pause quando o usuário começa a digitar
   const handleOpinionFocus = useCallback(async () => {
     if (store.status === 'running') {
@@ -347,7 +453,7 @@ export default function DebatePage() {
     if (!opinion.trim()) return;
     await sendOpinion(store.sessionId, opinion.trim());
     setOpinion('');
-    // Retoma automaticamente após enviar
+    setImpasse(null); // decisão tomada — fecha o painel
     if (store.status === 'paused') {
       await resumeDebate(store.sessionId);
       store.setStatus('running');
@@ -435,6 +541,14 @@ export default function DebatePage() {
                 ? <button className={styles.ctrlBtn} onClick={handlePause}>⏸ Pausar</button>
                 : <button className={`${styles.ctrlBtn} ${styles.resumeBtn}`} onClick={handleResume}>▶ Continuar</button>
               }
+              <button
+                className={`${styles.ctrlBtn} ${styles.synthForceBtn}`}
+                onClick={handleForceSynthesis}
+                disabled={forcingSynth || isDone}
+                title="Força um round de síntese — as IAs consolidam tudo numa resposta executável"
+              >
+                {forcingSynth ? '...' : '⚡ Sintetizar'}
+              </button>
               <button className={styles.finishBtn} onClick={handleFinish} disabled={finishing}>
                 {finishing ? '...' : '✓ Finalizar'}
               </button>
@@ -569,6 +683,21 @@ export default function DebatePage() {
             </div>
           )}
 
+          {/* ── Impasse — análise do moderador aguardando sua decisão ────── */}
+          {impasse && (
+            <div className={styles.impassePanel}>
+              <div className={styles.impasseHeader}>
+                <span className={styles.impasseIcon}>⚖</span>
+                <span className={styles.impasseTitle}>Impasse detectado — Round {impasse.round}</span>
+                <button className={styles.impasseClose} onClick={() => setImpasse(null)}>✕</button>
+              </div>
+              <pre className={styles.impasseAnalysis}>{impasse.analysis}</pre>
+              <div className={styles.impasseHint}>
+                Digite sua decisão no campo abaixo e clique Enviar — o debate retoma com sua escolha como premissa fechada.
+              </div>
+            </div>
+          )}
+
           {/* Opinion input */}
           {!isDone && (
             <div className={styles.inputBar}>
@@ -618,13 +747,30 @@ export default function DebatePage() {
                 📄 {synthesizing ? 'Gerando documento...' : 'Documento gerado'}
               </div>
               {synthSections.map((s, i) => (
-                <div key={i} className={`${styles.synthSection} ${s.error ? styles.synthError : ''}`}>
+                <div key={i} className={`${styles.synthSection} ${s.error ? styles.synthError : ''} ${s.truncated ? styles.synthTruncated : ''}`}>
                   <div className={styles.synthSectionTitle}>
-                    {s.error ? '✕' : '✓'} {s.title}
-                    <span className={styles.synthProgress}>{i + 1}/{s.total}</span>
+                    <span>
+                      {s.error ? '✕' : s.truncated ? '⚠' : '✓'} {s.title}
+                      {s.truncated && <span className={styles.synthTruncatedBadge}> incompleta</span>}
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span className={styles.synthProgress}>{i + 1}/{s.total}</span>
+                      {!synthesizing && (
+                        <button
+                          className={styles.synthRegenBtn}
+                          title={s.truncated ? 'Regerar seção incompleta' : 'Regerar esta seção'}
+                          onClick={() => handleRegenerateSection(i, s.title)}
+                        >{s.truncated ? '↺ completar' : '↺'}</button>
+                      )}
+                    </div>
                   </div>
+                  {s.truncated && (
+                    <div className={styles.synthTruncatedHint}>
+                      Esta seção pode estar incompleta. Clique ↺ completar para regerar.
+                    </div>
+                  )}
                   <div className={styles.synthSectionPreview}>
-                    {s.content?.slice(0, 200)}{s.content?.length > 200 ? '...' : ''}
+                    {s.content?.slice(0, 300)}{s.content?.length > 300 ? '...' : ''}
                   </div>
                 </div>
               ))}
@@ -705,30 +851,56 @@ export default function DebatePage() {
                 </div>
               );
             })}
+            {store.tokenStats['judge'] && (
+              <div className={styles.tokenRow} style={{ borderTop: '1px solid #1E2433', marginTop: 4, paddingTop: 4 }}>
+                <span style={{ color: '#EC4899' }}>⚖ Moderador</span>
+                <div className={styles.tokenStats}>
+                  <span>{formatTokens((store.tokenStats['judge'].inputTokens ?? 0) + (store.tokenStats['judge'].outputTokens ?? 0))} tok</span>
+                  <span className={styles.tokenCost}>{formatCost(store.tokenStats['judge'].cost ?? 0)}</span>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Ranking */}
+          {/* Ranking — 3 métricas */}
           <div className={styles.sideCard}>
             <div className={styles.sideTitle}>Contribuição</div>
             {rankedAgents.length === 0
               ? <div className={styles.sideMuted}>Aguardando avaliação...</div>
               : rankedAgents.map(([id, data], i) => {
-                  const cfg     = AGENTS_CONFIG[id];
+                  const cfg      = AGENTS_CONFIG[id];
                   const isKicked = store.kickedAgents.includes(id);
+                  const metrics  = [
+                    { key: 'novelty',      label: '💡 Novidade',     value: data.novelty,      title: 'Trouxe algo genuinamente novo?' },
+                    { key: 'practicality', label: '⚙️ Praticidade',   value: data.practicality, title: 'É implementável / acionável?' },
+                    { key: 'robustness',   label: '🛡 Solidez',       value: data.robustness,   title: 'Resistiu às críticas?' },
+                  ];
                   return (
-                    <div key={id} className={`${styles.rankRow} ${isKicked ? styles.kicked : ''}`}>
-                      <span className={styles.rankPos}>#{i + 1}</span>
-                      <span className={styles.rankIcon} style={{ color: cfg?.color }}>{cfg?.icon}</span>
-                      <span className={styles.rankName}>{cfg?.name ?? id}</span>
-                      <div className={styles.rankBarWrap}>
-                        <div className={styles.rankBar} style={{ width: `${(data.average / 10) * 100}%`, background: cfg?.color }} />
+                    <div key={id} className={`${styles.rankRow} ${isKicked ? styles.kicked : ''}`}
+                      style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span className={styles.rankPos}>#{i + 1}</span>
+                        <span className={styles.rankIcon} style={{ color: cfg?.color }}>{cfg?.icon}</span>
+                        <span className={styles.rankName}>{cfg?.name ?? id}</span>
+                        <span className={styles.rankScore} style={{ marginLeft: 'auto' }}>
+                          {data.average ?? '—'}
+                        </span>
+                        {data.alertKick && !isKicked && <span className={styles.alertKick}>⚠</span>}
+                        {!isKicked
+                          ? <button className={styles.kickBtn} onClick={() => handleKick(id)}>✕</button>
+                          : <button className={styles.unkickBtn} onClick={() => handleUnkick(id)}>↩</button>
+                        }
                       </div>
-                      <span className={styles.rankScore}>{data.average}</span>
-                      {data.alertKick && !isKicked && <span className={styles.alertKick}>⚠</span>}
-                      {!isKicked
-                        ? <button className={styles.kickBtn} onClick={() => handleKick(id)}>✕</button>
-                        : <button className={styles.unkickBtn} onClick={() => handleUnkick(id)}>↩</button>
-                      }
+                      {metrics.map(m => m.value != null && (
+                        <div key={m.key} className={styles.metricRow} title={m.title}>
+                          <span className={styles.metricLabel}>{m.label}</span>
+                          <div className={styles.metricBarWrap}>
+                            <div className={styles.metricBar}
+                              style={{ width: `${(m.value / 10) * 100}%`, background: cfg?.color ?? '#64748B' }} />
+                          </div>
+                          <span className={styles.metricScore}>{m.value}</span>
+                        </div>
+                      ))}
                     </div>
                   );
                 })
@@ -775,8 +947,10 @@ function parseBlocks(text) {
 }
 
 function MessageBubble({ msg, agentConfigs, kickedAgents, modelOverrides = {}, onWhisper, onKick, onUnkick }) {
-  const cfg      = AGENTS_CONFIG[msg.agentId] ?? agentConfigs?.[msg.agentId];
-  const color    = msg.isHuman ? '#94A3B8' : msg.isJudge ? '#EC4899' : (cfg?.color ?? '#64748B');
+  const baseId   = msg.agentId?.includes(':') ? msg.agentId.split(':')[0] : msg.agentId;
+  const cfg      = AGENTS_CONFIG[baseId] ?? agentConfigs?.[baseId];
+  const isAdv    = msg.isAdversary || msg.agentId?.includes(':adversary');
+  const color    = msg.isHuman ? '#94A3B8' : msg.isJudge ? '#EC4899' : isAdv ? '#FF6B35' : (cfg?.color ?? '#64748B');
   const isKicked = kickedAgents.includes(msg.agentId);
   const blocks   = parseBlocks(msg.text ?? '');
 

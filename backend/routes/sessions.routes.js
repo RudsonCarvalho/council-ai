@@ -50,11 +50,12 @@ router.delete('/:id', async (req, res) => {
 // ── PATCH /api/sessions/:id — atualiza tema, tags, isKnowledgeBase ───────────
 router.patch('/:id', async (req, res) => {
   try {
-    const { theme, tags, isKnowledgeBase } = req.body;
+    const { theme, tags, isKnowledgeBase, lessons } = req.body;
     const updates = {};
-    if (theme !== undefined)           updates.theme = theme;
-    if (tags !== undefined)            updates.tags = tags;
+    if (theme           !== undefined) updates.theme           = theme;
+    if (tags            !== undefined) updates.tags            = tags;
     if (isKnowledgeBase !== undefined) updates.isKnowledgeBase = isKnowledgeBase;
+    if (lessons         !== undefined) updates.lessons         = lessons;
     await updateSession(req.params.id, updates);
     res.json({ ok: true });
   } catch (err) {

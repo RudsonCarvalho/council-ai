@@ -109,7 +109,7 @@ function downloadUrl(url) {
     const protocol = url.startsWith('https') ? https : http;
     const req = protocol.get(url, {
       headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; AI-Debate-Platform/1.0)',
+      'User-Agent': 'Mozilla/5.0 (compatible; CouncilAI/1.0)',
         'Accept':     'text/html,text/plain',
       },
       timeout: 15000,

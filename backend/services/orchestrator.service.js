@@ -58,9 +58,8 @@ function stripMarkdown(text) {
 
 // ── Session lifecycle ─────────────────────────────────────────────────────────
 
-export function createSession({ sessionId, problem, agentIds, moderatorId, speed, briefings = {}, modelOverrides = {}, constitution = null, researcherId = null, researchContext = null, roundLimit = null, clarificationRound = true, contextSessions = [], contextMode = 'continue', synthesisObjective = '', synthesizerId = 'claude' }) {
+export function createSession({ sessionId, problem, agentIds, moderatorId, speed, briefings = {}, modelOverrides = {}, constitution = null, researcherId = null, researchContext = null, roundLimit = null, clarificationRound = true, contextSessions = [], contextMode = 'continue', synthesisObjective = '', synthesizerId = 'claude', adversaryId = null, factCheckerId = null, factCheckerModel = null }) {
 
-  // Monta a constituição corrigindo o nome do campo scenarioText → scenario
   let constitutionText = null;
   if (constitution) {
     constitutionText = buildConstitution({
@@ -81,13 +80,16 @@ export function createSession({ sessionId, problem, agentIds, moderatorId, speed
     constitutionText,
     researcherId,
     researchContext,
-    roundLimit,            // pausa automática a cada N rounds (null = sem limite)
-    roundsThisCycle: 0,   // contador de rounds desde último pause por limite
-    clarificationRound,    // Round 0 — IA pode pedir contexto antes de começar
-    contextSessions,       // sessionIds de sessões anteriores para contexto
-    contextMode,           // continue | light | challenge | break | free
-    synthesisObjective,    // objetivo do sintetizador
-    synthesizerId,         // IA que vai sintetizar
+    roundLimit,
+    roundsThisCycle: 0,
+    clarificationRound,
+    contextSessions,
+    contextMode,
+    synthesisObjective,
+    synthesizerId,
+    adversaryId,
+    factCheckerId,
+    factCheckerModel,           // IA que atua como adversário (null = desativado)
     whispers:         {},
     kickedAgents:     new Set(),
     currentRound:     0,
@@ -141,10 +143,21 @@ export async function startDebateLoop(sessionId) {
     try {
       const { getSessionContext } = await import('./storage.service.js');
       const blocks = await Promise.all(
-        session.contextSessions.map(sid => getSessionContext(sid, session.contextMode).catch(() => null))
+        session.contextSessions.map(sid => getSessionContext(sid, session.contextMode).catch(err => {
+          console.warn(`[knowledge] Failed to load context for session ${sid}:`, err.message);
+          return null;
+        }))
       );
       session.knowledgeContext = blocks.filter(Boolean).join('\n\n') || null;
-    } catch { session.knowledgeContext = null; }
+      if (session.knowledgeContext) {
+        console.log(`[knowledge] Loaded ${blocks.filter(Boolean).length} session(s) as context — mode=${session.contextMode} — ${session.knowledgeContext.length} chars`);
+      } else {
+        console.warn(`[knowledge] Context sessions selected but no content found`);
+      }
+    } catch (err) {
+      console.error(`[knowledge] Error loading context:`, err.message);
+      session.knowledgeContext = null;
+    }
   } else {
     session.knowledgeContext = null;
   }
@@ -224,6 +237,27 @@ export async function startDebateLoop(sessionId) {
       })),
     });
 
+    // ── Síntese forçada — pausa após o round de síntese ──────────────────
+    if (session.forcingSynthesis) {
+      session.forcingSynthesis = false;
+      session.status = 'paused';
+      emit(session, 'synthesis_round_done', { round });
+      console.log(`[debate] Synthesis round complete — pausing for review`);
+      break;
+    }
+
+    if (session.status !== 'running') break;
+
+    // ── Adversário — questiona as respostas do round (só vê os outros) ────
+    if (session.adversaryId && round > 0) {
+      const adversaryResponse = await runAdversary(session, round, roundResponses);
+      if (adversaryResponse) {
+        session.allResponses.push(adversaryResponse);
+        saveMessage(session.sessionId, adversaryResponse).catch(() => {});
+        emit(session, 'adversary_done', { round, text: adversaryResponse.text });
+      }
+    }
+
     if (session.status !== 'running') break;
 
     // ── Limitador de rounds — pausa automática a cada N rounds ───────────
@@ -238,9 +272,25 @@ export async function startDebateLoop(sessionId) {
       break;
     }
 
+    // ── Verificador de fatos — detecta contradições e verifica externamente ─
+    if (session.factCheckerId && round > 1) {
+      await runFactChecker(session, round, roundResponses);
+    }
+
     // ── Score + consenso ──────────────────────────────────────────────────
+    // Frequência de avaliação inteligente:
+    //   Round 1     → pula (IAs explorando, consenso impossível)
+    //   advancing   → avalia a cada 2 rounds (economiza ~40% das chamadas)
+    //   converging  → avalia todo round (decisão iminente)
+    //   stalled     → avalia todo round (precisa intervir)
+    const progress    = session.consensusResult?.working_memory?.progress ?? 'advancing';
+    const skipEval    = round === 1 || (progress === 'advancing' && round % 2 !== 0);
+
+    if (skipEval) {
+      console.log(`  ⏭ [judge] round=${round} skipping eval (progress=${progress})`);
+    } else {
     try {
-      emit(session, 'judge_start', { round }); // indicador visual no frontend
+      emit(session, 'judge_start', { round });
 
       const { scoreRound: sr, calculateCumulativeScores: ccs } = await import('./scorer.service.js');
       const roundScores = await sr(session.problem, roundResponses);
@@ -251,8 +301,28 @@ export async function startDebateLoop(sessionId) {
       const consensus = await judgeConsensus(session.problem, session.allResponses, session.moderatorId, session.sessionId);
       session.consensusResult = consensus;
 
-      emit(session, 'judge_done', { round }); // remove indicador visual
+      if (consensus._judgeUsage) {
+        emit(session, 'cost_update', {
+          agentId:      'judge',
+          inputTokens:  consensus._judgeUsage.inputTokens,
+          outputTokens: consensus._judgeUsage.outputTokens,
+          round,
+        });
+        delete consensus._judgeUsage;
+      }
+
+      emit(session, 'judge_done', { round });
       emit(session, 'consensus', { ...consensus, round });
+
+      // ── Impasse detectado — apresenta análise para o humano decidir ──────
+      if (consensus.impasse && consensus.impasseAnalysis) {
+        session.status = 'paused';
+        emit(session, 'impasse_detected', {
+          round,
+          analysis: consensus.impasseAnalysis,
+        });
+        break;
+      }
 
       if (consensus.should_pause) {
         session.status = 'paused';
@@ -261,7 +331,6 @@ export async function startDebateLoop(sessionId) {
       }
 
       if (consensus.consensus) {
-        // Consenso atingido — pausa e espera o usuário decidir
         session.status = 'paused';
         emit(session, 'consensus_reached', { confidence: consensus.confidence, summary: consensus.summary });
         break;
@@ -269,13 +338,15 @@ export async function startDebateLoop(sessionId) {
     } catch (err) {
       console.error(`[orchestrator] Judge/score error round ${round}:`, err.message);
     }
+    } // end skipEval else
+
   }
 
   if (session.status !== 'done') {
     session.status = 'paused';
     emit(session, 'paused', { round: session.currentRound });
   }
-  session._loopRunning = false; // libera o lock
+  session._loopRunning = false;
 }
 
 // ── Controls ──────────────────────────────────────────────────────────────────
@@ -388,6 +459,9 @@ async function runAgent(session, agentId, round, contextSoFar) {
 
   // Contexto de sessões anteriores — injetado apenas no round 1
   const knowledgeBlock = round === 1 && session.knowledgeContext ? session.knowledgeContext : null;
+  if (round === 1 && knowledgeBlock) {
+    console.log(`  📚 [${agentId}] injecting knowledge context — ${knowledgeBlock.length} chars`);
+  }
 
   const privateContext = [
     constitution,
@@ -395,6 +469,10 @@ async function runAgent(session, agentId, round, contextSoFar) {
     researchBlock,
     briefing,
     whisper,
+    // Quando o adversário está ativo, as IAs precisam saber como responder às críticas
+    session.adversaryId
+      ? `NOTA SOBRE O ADVERSÁRIO: Este debate tem um agente adversário que vai apontar falhas e classificá-las por probabilidade e impacto. Quando ele levantar uma crítica, responda avaliando se o risco é aceitável, precisa de mitigação ou bloqueia o design — não tente eliminar toda possibilidade de falha, isso é impossível. O objetivo é identificar quais falhas são aceitáveis, quais precisam de mitigação e quais são inaceitáveis.`
+      : null,
     isExtended ? `NOTA: Você tem permissão para respostas mais longas nesta sessão.` : null,
   ].filter(Boolean).join('\n\n') || null;
   const modelOverride  = session.modelOverrides?.[agentId] ?? null;
@@ -445,6 +523,235 @@ async function runAgent(session, agentId, round, contextSoFar) {
 }
 
 /**
+ * Adversário — roda APÓS todas as IAs responderem no round.
+ * Recebe só as respostas das outras IAs (nunca as próprias) e questiona.
+ * A crítica entra no contexto do próximo round para todas as IAs.
+ */
+/**
+ * Verificador de fatos — detecta claims factuais contraditórios no round
+ * e verifica com fonte externa antes do próximo round começar.
+ * Injeta o resultado como contexto autoritativo [GROUNDING].
+ */
+async function runFactChecker(session, round, roundResponses) {
+  const factCheckerId = session.factCheckerId;
+  const adapter       = ADAPTER_REGISTRY[factCheckerId];
+  if (!adapter) return;
+
+  // Passo 1 — detecta se há claims factuais que merecem verificação
+  const DETECTOR_PROMPT = `Analyze these debate responses for factual claims that need external verification.
+Look for: specific numbers, prices, dates, versions, statistics, or direct contradictions between participants about facts (not opinions).
+
+Respond with JSON only:
+{
+  "hasFactualClaims": true or false,
+  "claims": ["claim 1 to verify", "claim 2 to verify"]
+}
+
+If no specific verifiable facts exist, return hasFactualClaims: false, claims: [].
+Maximum 3 claims. Only include claims where being wrong would affect the debate conclusion.`;
+
+  const roundText = roundResponses
+    .filter(r => !r.isHuman && !r.isJudge)
+    .map(r => `[${r.agentName}]: ${r.text.slice(0, 300)}`)
+    .join('\n\n');
+
+  let claimsToVerify = [];
+
+  try {
+    const Anthropic = (await import('@anthropic-ai/sdk')).default;
+    const { JUDGE_MODEL } = await import('../../config/agents.config.js');
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const res = await client.messages.create({
+      model:      JUDGE_MODEL,
+      max_tokens: 200,
+      system:     DETECTOR_PROMPT,
+      messages:   [{ role: 'user', content: `PROBLEM: ${session.problem}\n\nROUND ${round}:\n${roundText}` }],
+    });
+    const raw  = res.content[0].text.trim();
+    const clean = raw.replace(/^```json\s*/i, '').replace(/```$/, '').trim();
+    const parsed = JSON.parse(clean.slice(clean.indexOf('{'), clean.lastIndexOf('}') + 1));
+    if (!parsed.hasFactualClaims || !parsed.claims?.length) {
+      console.log(`  🔍 [fact-checker] round=${round} — no factual claims detected`);
+      return;
+    }
+    claimsToVerify = parsed.claims.slice(0, 3);
+    console.log(`  🔍 [fact-checker] round=${round} — verifying ${claimsToVerify.length} claims: ${claimsToVerify.join(' | ')}`);
+  } catch (err) {
+    console.warn(`  🔍 [fact-checker] detection failed:`, err.message);
+    return;
+  }
+
+  // Passo 2 — verifica os claims com o agente selecionado
+  emit(session, 'factcheck_start', { agentId: factCheckerId, round, claims: claimsToVerify });
+
+  const modelOverride = session.factCheckerModel ?? null;
+  const hasWebAccess  = factCheckerId === 'perplexity';
+
+  const verifyPrompt = `You are a fact-checker. Verify these specific claims that emerged in a debate.
+${hasWebAccess ? 'Search the web for current, accurate information.' : 'Use your training knowledge to verify these claims.'}
+
+For each claim, state clearly:
+- CONFIRMED / CONTRADICTED / INCONCLUSIVE
+- Evidence or reasoning
+- Source (URL if available, or "training knowledge")
+${hasWebAccess ? '\nInclude real URLs when possible.' : ''}
+
+Claims to verify:
+${claimsToVerify.map((c, i) => `${i + 1}. ${c}`).join('\n')}
+
+Context: ${session.problem}
+
+Format each result as:
+CLAIM [n]: [claim text]
+STATUS: CONFIRMED / CONTRADICTED / INCONCLUSIVE
+EVIDENCE: [your finding]
+SOURCE: [URL or source]`;
+
+  let verificationText = '';
+
+  try {
+    const controller = new AbortController();
+    session.abortControllers.set('factchecker', controller);
+
+    await adapter.stream({
+      problem:           verifyPrompt,
+      previousResponses: [],
+      privateContext:    null,
+      modelOverride,
+      signal:            controller.signal,
+      onToken: (token) => {
+        verificationText += token;
+        emit(session, 'token', { agentId: `${factCheckerId}:factchecker`, token, round });
+      },
+    });
+
+    session.abortControllers.delete('factchecker');
+
+    if (!verificationText.trim()) return;
+
+    // Formata e injeta como contexto autoritativo
+    const groundingMessage = `[GROUNDING EXTERNO — verificado por ${AGENTS_CONFIG[factCheckerId]?.name}]\n\n${stripMarkdown(verificationText)}\n\nNota: estes fatos foram verificados externamente. Usem como premissa — não debatam a fonte.`;
+
+    const groundingResponse = {
+      agentId:     `${factCheckerId}:factchecker`,
+      agentName:   `🔍 Verificador (${AGENTS_CONFIG[factCheckerId]?.name})`,
+      round,
+      text:        groundingMessage,
+      isHuman:     false,
+      isFactCheck: true,
+      partial:     false,
+    };
+
+    session.allResponses.push(groundingResponse);
+    saveMessage(session.sessionId, groundingResponse).catch(() => {});
+    emit(session, 'factcheck_done', { round, text: groundingMessage });
+    console.log(`  🔍 [fact-checker] done — grounding injected`);
+
+  } catch (err) {
+    session.abortControllers.delete('factchecker');
+    if (err.name !== 'AbortError') console.error(`  🔍 [fact-checker] error:`, err.message);
+  }
+}
+
+async function runAdversary(session, round, roundResponses) {
+  const adversaryId = session.adversaryId;
+  const adapter     = ADAPTER_REGISTRY[adversaryId];
+  if (!adapter) return null;
+
+  const othersResponses = roundResponses.filter(r => r.agentId !== adversaryId);
+  if (othersResponses.length === 0) return null;
+
+  const cfg = AGENTS_CONFIG[adversaryId];
+
+  // ── Fase do debate determina o papel do adversário ────────────────────────
+  const confidence = session.consensusResult?.confidence ?? 0;
+  const progress   = session.consensusResult?.working_memory?.progress ?? 'advancing';
+  const isConverging = confidence >= 0.65 || progress === 'converging';
+
+  const adversaryPersona = isConverging
+    ? `You are a calibrated risk reviewer. A solution is emerging (${Math.round(confidence * 100)}% confidence).
+
+Your role: identify ONLY implementation risks not yet addressed. For each risk you raise, you MUST classify it:
+
+Probability: high / medium / low
+Impact if it occurs: high / medium / low
+Your call: blocks the design / needs mitigation / acceptable with monitoring
+
+IMPORTANT: Risks rated low probability + low impact do NOT block the design. Mention them briefly and move on. Do not insist if the team proposes reasonable mitigation.
+
+The goal is NOT a zero-failure system — that does not exist. The goal is identifying which failures are acceptable, which need mitigation, and which are unacceptable.
+
+Be concise. Maximum 150 words. Plain text, no markdown.`
+
+    : `You are a calibrated adversary in a multi-AI debate. Your role is to challenge weak arguments — not to find infinite edge cases.
+
+For every flaw you raise, you MUST classify it:
+
+Probability: high / medium / low
+Impact if it occurs: high / medium / low
+Your call: blocks the design / needs mitigation / acceptable with monitoring
+
+Rules:
+- Low probability + low impact = mention once, do NOT repeat if mitigated
+- Only high impact OR high probability flaws deserve sustained pressure
+- If you already raised a point and the team addressed it, move on — do not rehash
+- The goal is NOT zero risk. The goal is: which risks are acceptable?
+
+Be specific — name which agent said what and why it is insufficient. Plain text, no markdown. Maximum 150 words.`;
+
+  const phase = isConverging ? 'risk-reviewer' : 'challenger';
+  console.log(`  ⚔ [adversary:${adversaryId}] round=${round} phase=${phase} confidence=${Math.round(confidence*100)}%`);
+
+  const roundSummary = othersResponses.map(r => `[${r.agentName}]: ${r.text.slice(0, 400)}`).join(`\n\n`);
+  const prompt = isConverging
+    ? `PROBLEM: ${session.problem}\n\nEMERGING SOLUTION (round ${round}):\n\n${roundSummary}\n\nWhat implementation risks or gaps still need to be addressed?`
+    : `PROBLEM: ${session.problem}\n\nROUND ${round} RESPONSES:\n\n${roundSummary}\n\nChallenge these. What is weak, repeated, or unsubstantiated?`;
+
+  emit(session, `adversary_start`, { agentId: adversaryId, round, phase });
+
+  const controller = new AbortController();
+  session.abortControllers.set(`adversary`, controller);
+  let text = ``, inputTokens = 0, outputTokens = 0;
+
+  try {
+    const result = await adapter.stream({
+      problem:           prompt,
+      previousResponses: [],
+      privateContext:    adversaryPersona,
+      modelOverride:     session.modelOverrides?.[adversaryId] ?? null,
+      signal:            controller.signal,
+      onToken: (token) => {
+        text += token;
+        emit(session, `token`, { agentId: `${adversaryId}:adversary`, token, round });
+      },
+    });
+    inputTokens  = result.inputTokens;
+    outputTokens = result.outputTokens;
+    emit(session, `cost_update`, { agentId: `${adversaryId}:adversary`, inputTokens, outputTokens, round });
+    console.log(`  ⚔ [adversary:${adversaryId}] done — ${inputTokens}in/${outputTokens}out`);
+  } catch (err) {
+    if (err.name !== `AbortError`) console.error(`  ⚔ [adversary] error:`, err.message);
+  }
+
+  session.abortControllers.delete(`adversary`);
+  if (!text) return null;
+
+  // Nome muda conforme a fase — deixa claro para o usuário o que está acontecendo
+  const agentName = isConverging
+    ? `${cfg?.name ?? adversaryId} 🛡 revisor`
+    : `${cfg?.name ?? adversaryId} ⚔`;
+
+  return {
+    agentId:     `${adversaryId}:adversary`,
+    agentName,
+    round, text: stripMarkdown(text),
+    isHuman: false, isAdversary: true, partial: false,
+    phase, inputTokens, outputTokens,
+  };
+}
+
+/**
+ * Round 0 — Clarification.
  * Round 0 — Clarification.
  * A primeira IA avalia se tem contexto suficiente para debater.
  * Se detectar lacunas, emite evento e pausa para o usuário responder.

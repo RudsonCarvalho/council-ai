@@ -7,8 +7,8 @@
   --border:    #1E2433;
   --border2:   #2A3347;
   --text:      #E2E8F0;
-  --muted:     #94A3B8;   /* era 64748B — mais legível */
-  --muted2:    #64748B;   /* era 475569 */
+  --muted:     #94A3B8;
+  --muted2:    #64748B;
   --accent:    #F59E0B;
   --success:   #10B981;
   --error:     #EF4444;
@@ -20,7 +20,7 @@
   background: var(--bg);
   color: var(--text);
   font-family: 'JetBrains Mono', monospace;
-  font-size: 14px;         /* era 13px */
+  font-size: 14px;
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -126,17 +126,19 @@
   display: flex;
   flex-direction: column;
   gap: 0;
-  border: 1px solid color-mix(in srgb, var(--agent-color) 20%, var(--border));
+  border: 2px solid color-mix(in srgb, var(--agent-color) 20%, var(--border));
   border-radius: var(--radius);
   overflow: hidden;
-  opacity: 0.5;
+  opacity: 0.55;
   transition: all 0.15s;
 }
-.agentCardWrap:hover { opacity: 0.8; }
+.agentCardWrap:hover { opacity: 0.85; }
 .agentCardWrapSelected {
   opacity: 1;
   border-color: var(--agent-color);
-  background: color-mix(in srgb, var(--agent-color) 5%, transparent);
+  border-width: 2px;
+  background: color-mix(in srgb, var(--agent-color) 12%, transparent);
+  box-shadow: 0 0 0 1px var(--agent-color);
 }
 .agentCardWrapMod {
   opacity: 0.4;
@@ -147,12 +149,12 @@
 .agentCard {
   background: none;
   border: none;
-  padding: 14px 10px;      /* mais respiro vertical */
+  padding: 16px 10px;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   width: 100%;
   position: relative;
 }
@@ -163,10 +165,10 @@
   background: color-mix(in srgb, var(--agent-color) 8%, #060810);
   border: none;
   border-top: 1px solid color-mix(in srgb, var(--agent-color) 25%, var(--border));
-  padding: 7px 10px;       /* era 5px — mais fácil de clicar */
+  padding: 8px 10px;
   color: color-mix(in srgb, var(--agent-color) 90%, #E2E8F0);
   font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;         /* era 10px */
+  font-size: 12px;
   outline: none;
   width: 100%;
   cursor: pointer;
@@ -174,9 +176,9 @@
 }
 .modelSelect:focus { outline: 1px solid var(--agent-color); }
 
-.agentIcon    { font-size: 22px; color: var(--agent-color); }
-.agentName    { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px; color: #F1F5F9; }
-.agentCompany { font-size: 11px; color: #64748B; }
+.agentIcon    { font-size: 26px; color: var(--agent-color); }
+.agentName    { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 14px; color: #F1F5F9; }
+.agentCompany { font-size: 12px; color: #94A3B8; font-weight: 500; }
 .modBadge {
   position: absolute;
   top: 6px; right: 6px;
@@ -199,7 +201,7 @@
   line-height: 1.5;
 }
 .checkboxRow input { margin-top: 3px; accent-color: var(--accent); }
-.checkboxHint { font-size: 12px; color: var(--muted); display: block; margin-top: 2px; }
+.checkboxHint { font-size: 13px; color: #94A3B8; display: block; margin-top: 3px; line-height: 1.5; }
 
 .speedGrid { display: flex; gap: 8px; }
 .speedBtn {
@@ -255,7 +257,7 @@
   flex-direction: column;
   gap: 16px;
 }
-.briefingHint  { font-size: 12px; color: var(--muted); line-height: 1.6; }
+.briefingHint  { font-size: 13px; color: #94A3B8; line-height: 1.6; }
 .briefingItem  { display: flex; flex-direction: column; gap: 6px; }
 .briefingLabel { font-size: 12px; font-weight: 600; }
 .briefingTextarea {
@@ -652,3 +654,27 @@
 .modeLabel { font-weight: 600; font-size: 13px; color: var(--text); flex: 1; }
 .modeCheck  { color: #F59E0B; font-size: 13px; }
 .modeDesc   { font-size: 11px; color: var(--muted); line-height: 1.5; }
+
+.testPreview    { font-size: 10px; color: #64748B; font-style: italic; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.testErrorWrap  { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.testRawError   { font-size: 9px; color: #475569; font-family: 'JetBrains Mono', monospace; word-break: break-all; }
+
+/* ── Fact checker ────────────────────────────────────────────────────────────── */
+.factCheckerWarning {
+  background: #7C2D1218;
+  border: 1px solid #EF444444;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #FCA5A5;
+  line-height: 1.5;
+}
+.factCheckerOk {
+  background: #05280F18;
+  border: 1px solid #10B98144;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #6EE7B7;
+  line-height: 1.5;
+}
