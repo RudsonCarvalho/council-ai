@@ -69,6 +69,42 @@ User
   -> Optional executor turns the spec into implementation work
 ```
 
+```mermaid
+flowchart TD
+    user["User / human moderator"] --> setup["Setup debate room"]
+    setup --> context["Problem, files, URLs, previous sessions, rules, private briefings"]
+    context --> orchestrator["Council AI orchestrator"]
+
+    orchestrator --> agents["AI agents debate in parallel"]
+    agents --> claude["Claude"]
+    agents --> gpt["GPT"]
+    agents --> gemini["Gemini"]
+    agents --> perplexity["Perplexity"]
+    agents --> others["DeepSeek, Grok, Mistral, custom agents"]
+
+    claude --> round["Round transcript"]
+    gpt --> round
+    gemini --> round
+    perplexity --> round
+    others --> round
+
+    round --> judge["Judge scores consensus, novelty, practicality, robustness"]
+    round --> adversary["Optional adversary challenges weak reasoning"]
+    round --> factchecker["Optional fact-checker inspects factual claims"]
+
+    judge --> decision{"Consensus or impasse?"}
+    adversary --> decision
+    factchecker --> decision
+
+    decision -- "Keep debating" --> orchestrator
+    decision -- "Needs human call" --> user
+    user -- "Pause, steer, whisper, kick, add context" --> orchestrator
+
+    decision -- "Ready" --> synthesizer["Synthesizer creates final artifact"]
+    synthesizer --> output["Decision memo, technical spec, research brief, article, or business plan"]
+    output --> executor["Optional executor: Claude Code, Aider, or custom tool"]
+```
+
 ## Multi-Provider by Design
 
 Council AI ships with adapters for seven providers, each independently toggleable and model-selectable in `config/agents.config.js`.
