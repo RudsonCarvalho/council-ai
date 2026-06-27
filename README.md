@@ -73,6 +73,8 @@ User
 
 Council AI ships with adapters for seven providers, each independently toggleable and model-selectable in `config/agents.config.js`.
 
+The table below is the default model catalog included in this public release, not a locked list. Users can edit `config/agents.config.js` to change default models, add more model options to an existing provider, disable providers they do not use, or register new agents/adapters for additional model vendors.
+
 | Agent | Company | Default model | Persona angle |
 | --- | --- | --- | --- |
 | Claude | Anthropic | `claude-sonnet-4-5` | safety, correctness, maintainability |
@@ -83,7 +85,7 @@ Council AI ships with adapters for seven providers, each independently toggleabl
 | Grok | xAI | `grok-4.20-non-reasoning` | first principles, contrarian critique |
 | Mistral | Mistral AI | `mistral-large-latest` | open-source, interoperability, vendor neutrality |
 
-You only need API keys for the providers you enable. Claude is required by default because the judge and moderator use Anthropic models.
+You only need API keys for the providers you enable. Claude is required by default because the judge and moderator use Anthropic models, but that behavior can also be customized in configuration if you want to use a different judging strategy.
 
 ## Main Screens
 
